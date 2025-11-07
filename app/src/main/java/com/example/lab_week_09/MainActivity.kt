@@ -36,9 +36,13 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.room.util.copy
 import com.example.lab_week_09.ui.theme.LAB_WEEK_09Theme
+import com.example.lab_week_09.ui.theme.MoshiAdapter
 import com.example.lab_week_09.ui.theme.OnBackgroundItemText
 import com.example.lab_week_09.ui.theme.OnBackgroundTitleText
 import com.example.lab_week_09.ui.theme.PrimaryTextButton
+import com.squareup.moshi.JsonAdapter
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 
 //Previously we extend AppCompatActivity,
 //now we extend ComponentActivity
@@ -82,7 +86,7 @@ data class Student(
 
 @Composable
 fun Home(
-    navigateFromHomeToResult: (String) -> Unit
+    navigateFromHomeToResult: (List<Student>) -> Unit
 ) {
     //Here, we create a mutable state list of Student
     //We use remember to make the list remember its value
@@ -98,7 +102,10 @@ fun Home(
     )}
     //Here, we create a mutable state of Student
     //This is so that we can get the value of the input field
-    var inputField = remember { mutableStateOf(Student("")) }
+    val inputField = remember { mutableStateOf(Student("")) }
+
+    // Logika memeriksa input kosong atau tidak
+    val isInputValid = inputField.value.name.isNotBlank()
 
     //We call the HomeContent composable
     //Here, we pass:
@@ -111,10 +118,12 @@ fun Home(
         inputField.value,
         { input -> inputField.value = inputField.value.copy(input) },
         {
-            listData.add(inputField.value)
-            inputField.value = Student("")
+            if (isInputValid){
+                listData.add(inputField.value)
+                inputField.value = Student("")
+            }
         },
-        { navigateFromHomeToResult(listData.toList().toString()) }
+        { navigateFromHomeToResult(listData.toList()) }
     )
 }
 
@@ -229,8 +238,14 @@ fun App(navController: NavHostController) {
         composable("home") {
             //Here, we pass a lambda function that navigates to "resultContent"
             //and pass the listData as a parameter
-            Home { navController.navigate(
-                "resultContent/?listData=$it")
+            Home { listData ->
+                val listType = Types.newParameterizedType(List::class.java, Student::class.java)
+                val jsonAdapter = MoshiAdapter.moshi.adapter<List<Student>>(listType)
+
+                // 2. Ubah list menjadi string JSON
+                val jsonString = jsonAdapter.toJson(listData)
+
+                navController.navigate("resultContent/?listData=$jsonString")
             }
         }
         //Here, we create a route called "resultContent"
@@ -246,10 +261,11 @@ fun App(navController: NavHostController) {
             arguments = listOf(navArgument("listData") {
                 type = NavType.StringType }
             )
-        ) {
+        ) { backStackEntry ->
+            val jsonString = backStackEntry.arguments?.getString("listData").orEmpty()
             //Here, we pass the value of the argument to the ResultContent composable
             ResultContent(
-                it.arguments?.getString("listData").orEmpty()
+                listData = jsonString
             )
         }
     }
@@ -260,13 +276,32 @@ fun App(navController: NavHostController) {
 //then displays the value of listData to the screen
 @Composable
 fun ResultContent(listData: String) {
+    // 1. Buat adapter untuk mengubah JSON kembali menjadi List<Student>
+    val listType = Types.newParameterizedType(List::class.java, Student::class.java)
+    val jsonAdapter: JsonAdapter<List<Student>> = MoshiAdapter.moshi.adapter(listType)
+
+    // 2. Parse string JSON. Gunakan "remember" agar tidak di-parse ulang setiap recomposition.
+    // Jika jsonString kosong, berikan list kosong.
+    val studentList =
+        if (listData.isNotEmpty()) {
+            jsonAdapter.fromJson(listData)
+        } else {
+          emptyList()
+        }
+
+    // Display the list of students
     Column(
         modifier = Modifier
-            .padding(vertical = 4.dp)
-            .fillMaxSize(),
+            .fillMaxSize()
+            .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        //Here, we call the OnBackgroundItemText UI Element
-        OnBackgroundItemText(text = listData)
+        OnBackgroundTitleText(text = "Result Page")
+        // Use LazyColumn to display the list of student names
+        LazyColumn(modifier = Modifier.padding(top = 16.dp)) {
+            items(studentList.orEmpty()) { student ->
+                OnBackgroundItemText(text = student.name)
+            }
+        }
     }
 }
